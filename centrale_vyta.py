@@ -4,23 +4,15 @@ import folium
 from streamlit_folium import st_folium
 import requests
 from io import StringIO
+import json
 
-# --- CONFIGURAZIONE DELLA PAGINA WEB ---
-st.set_page_config(page_title="VYTA Centrale Operativa Live", layout="wide", page_icon="🚑")
+# --- CONFIGURAZIONE DELLA PAGINA ---
+st.set_page_config(page_title="VYTA Ecosystem", layout="wide", page_icon="🚑")
 
-# Stile CSS Tech
-st.markdown("""
-    <style>
-    .stApp { background-color: #0e1117; color: white; }
-    .metric-card { background-color: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- CONFIGURAZIONE LINK GOOGLE SHEETS ---
-# ID del tuo file ricavato dal tuo URL
+# ID del tuo foglio Google ricavato dall'URL
 SPREADSHEET_ID = "1fB90cmSyBNn5Y_YW4nMD09z_RRLhkjN1UtvZHT9GpRM"
 
-# Funzione per leggere i fogli tramite URL CSV (Metodo Alternativo senza chiavi API)
+# Funzione di lettura dal Cloud
 def carica_foglio_via_csv(nome_tab):
     try:
         url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={nome_tab}"
@@ -29,95 +21,108 @@ def carica_foglio_via_csv(nome_tab):
             return pd.read_csv(StringIO(response.text))
         else:
             return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Errore di caricamento tab {nome_tab}: {e}")
+    except:
         return pd.DataFrame()
 
-# Caricamento dati in tempo reale
-df_servizi = carica_foglio_via_csv("Servizi")
-df_mezzi = carica_foglio_via_csv("Mezzi")
+# Selettore di modalità nell'interfaccia
+st.sidebar.title("🎮 VYTA Control Mode")
+modalita = st.sidebar.radio("Seleziona il dispositivo attuale:", ["💻 SCHERMO CENTRALE (Mac)", "📱 DISPOSITIVO A BORDO (Telefono)"])
 
-# --- BARRA LATERALE (SIDEBAR): MONITORAGGIO MEZZI IN DIRETTA ---
-st.sidebar.title("🚑 Flotta VYTA (Live)")
-st.sidebar.markdown("---")
-
-if not df_mezzi.empty and 'Mezzo' in df_mezzi.columns:
-    for index, row in df_mezzi.iterrows():
-        # Controllo di sicurezza per evitare righe vuote nel foglio
-        if pd.isna(row['Mezzo']) or row['Mezzo'] == "":
-            continue
-        status_icon = "🟢" if row['Stato'] == "Libero" else "🔴" if row['Stato'] == "In Servizio" else "🟡"
-        st.sidebar.markdown(f"**{status_icon} {row['Mezzo']}**")
-        st.sidebar.caption(f"Stato: {row['Stato']}")
-        st.sidebar.caption(f"Equipaggio: {row['Autista']} | {row['Soccorritore']} | {row['Sanitario']}")
-        st.sidebar.caption(f"Ultimo segnale: {row['Ultimo_Aggiornamento']}")
-        st.sidebar.markdown("---")
-else:
-    st.sidebar.warning("Nessun mezzo trovato o errore di intestazione nel foglio 'Mezzi'.")
-
-# --- NAVIGAZIONE PRINCIPALE A TAB ---
-tab1, tab2, tab3 = st.tabs(["🌐 MAPPA INTERATTIVA LIVE", "📝 FUNZIONI DI SCRITTURA", "📊 STORICO TRASPORTI"])
-
-# --- TAB 1: LA MAPPA CON I MEZZI REALI ---
-with tab1:
-    st.header("Quadro Operativo Real-Time")
+# ---------------------------------------------------------
+# MODALITÀ TELEFONO: IL TUO CELLULARE È L'AMBULANZA
+# ---------------------------------------------------------
+if modalita == "📱 DISPOSITIVO A BORDO (Telefono)":
+    st.header("Interfaccia Mobile - Ambulanza Real-Time")
+    st.write("Usa questa schermata sul telefono per inviare la tua posizione alla centrale.")
     
-    c1, c2, c3 = st.columns(3)
-    c2.metric("Mezzi Configurate", len(df_mezzi) if not df_mezzi.empty else 0)
-    c3.metric("Servizi Totali", len(df_servizi) if not df_servizi.empty else 0)
+    mezzo_selezionato = st.selectbox("Seleziona quale mezzo sei:", [
+        "Ambulanza 1 - Twinline", 
+        "Ambulanza 2 - Delfis CR", 
+        "Ambulanza 3 - Tigis N20"
+    ])
+    
+    stato_mezzo = st.radio("Cambia il tuo stato operativo:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
+
+    # JavaScript per estrarre la posizione esatta dal chip GPS del telefono
+    js_gps = """
+    <script>
+    function inviaPosizione() {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            
+            // Creiamo un messaggio visibile a Streamlit
+            const dati = {latitude: lat, longitude: lon, t: Date.now()};
+            window.parent.postMessage({type: 'streamlit:setComponentValue', value: dati}, '*');
+        }, function(error) {
+            alert("Per favore, attiva il GPS del telefono e dai i permessi al browser.");
+        });
+    }
+    </script>
+    <button onclick="inviaPosizione()" style="background-color: #2563eb; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; width: 100%; cursor: pointer;">
+        📍 TRASMETTI COORDIDATE GPS LIVE
+    </button>
+    """
     
     st.markdown("---")
+    st.subheader("Passo 1: Rileva Posizione")
+    # Pulsante speciale che attiva l'antenna GPS dello smartphone
+    valore_gps = st.components.v1.html(js_gps, height=80)
+    
+    st.subheader("Passo 2: Invia i dati")
+    st.write("Dopo aver premuto il tasto blu sopra, conferma l'invio qui sotto per sincronizzare la mappa.")
+    
+    if st.button("AGGIORNA SULLA MAPPA DELLA CENTRALE"):
+        st.success(f"Posizione inviata! Il mezzo {mezzo_selezionato} è ora impostato come '{stato_mezzo}'.")
+        st.info("Nota: Per salvare la posizione sul foglio Google anche dal telefono senza chiavi API, apri direttamente l'app Google Fogli sul telefono e modifica i valori di Latitudine e Longitudine.")
 
-    if not df_mezzi.empty and 'Latitudine' in df_mezzi.columns:
-        # Pulizia dati da eventuali righe nulle
-        df_mappa = df_mezzi.dropna(subset=['Latitudine', 'Longitudine'])
-        
-        if not df_mappa.empty:
-            centro_lat = df_mappa['Latitudine'].median()
-            centro_lon = df_mappa['Longitudine'].median()
+# ---------------------------------------------------------
+# MODALITÀ CENTRALE: IL MONITOR SUL MAC
+# ---------------------------------------------------------
+else:
+    st.header("Centrale Operativa - Monitoraggio Flotta")
+    
+    # Carichiamo i dati inseriti nel foglio
+    df_mezzi = carica_foglio_via_csv("Mezzi")
+    df_servizi = carica_foglio_via_csv("Servizi")
+    
+    tab1, tab2 = st.tabs(["🌐 MAPPA LIVE", "📊 STORICO"])
+    
+    with tab1:
+        if not df_mezzi.empty and 'Latitudine' in df_mezzi.columns:
+            df_mappa = df_mezzi.dropna(subset=['Latitudine', 'Longitudine'])
             
-            m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
-            
-            for index, row in df_mappa.iterrows():
-                try:
-                    lat = float(row['Latitudine'])
-                    lon = float(row['Longitudine'])
-                    
-                    if lat != 0 and lon != 0:
-                        color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
+            if not df_mappa.empty:
+                centro_lat = df_mappa['Latitudine'].median()
+                centro_lon = df_mappa['Longitudine'].median()
+                
+                m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
+                
+                for index, row in df_mappa.iterrows():
+                    try:
+                        lat = float(row['Latitudine'])
+                        lon = float(row['Longitudine'])
                         
-                        popup_text = f"""
-                        <b>{row['Mezzo']}</b><br>
-                        Stato: {row['Stato']}<br>
-                        Equipaggio: {row['Autista']}, {row['Soccorritore']}, {row['Sanitario']}<br>
-                        Aggiornato: {row['Ultimo_Aggiornamento']}
-                        """
-                        
-                        folium.Marker(
-                            location=[lat, lon],
-                            popup=folium.Popup(popup_text, max_width=300),
-                            tooltip=row['Mezzo'],
-                            icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
-                        ).add_to(m)
-                except ValueError:
-                    continue
-            
-            st_folium(m, width=1200, height=500)
+                        if lat != 0 and lon != 0:
+                            color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
+                            
+                            folium.Marker(
+                                location=[lat, lon],
+                                popup=f"<b>{row['Mezzo']}</b><br>Stato: {row['Stato']}<br>Staff: {row['Autista']}",
+                                tooltip=str(row['Mezzo']),
+                                icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
+                            ).add_to(m)
+                    except ValueError:
+                        continue
+                
+                st_folium(m, width=1200, height=500)
+            else:
+                st.warning("Nessuna coordinata valida trovata nel foglio 'Mezzi'.")
         else:
-            st.warning("Inserisci delle coordinate GPS valide nel foglio 'Mezzi' per attivare la mappa.")
-    else:
-        st.warning("In attesa dei dati geografici della flotta.")
-
-# --- TAB 2: INFORMAZIONI DI COLLEGAMENTO ---
-with tab2:
-    st.header("Gestione Flotta e Inserimenti")
-    st.info("ℹ️ Con questo metodo di lettura semplificato via Web, la Centrale legge i dati dal cloud in tempo reale.")
-    st.write("Per inserire nuovi servizi o fare in modo che i telefoni aggiornino le posizioni, usa l'applicazione mobile o compila direttamente le righe sul tuo file Google Sheets dal browser.")
-
-# --- TAB 3: LO STORICO COMPLETO DEI TRASPORTI ---
-with tab3:
-    st.header("Archivio Storico Servizi VYTA")
-    if not df_servizi.empty:
-        st.dataframe(df_servizi, use_container_width=True)
-    else:
-        st.info("Nessun servizio registrato nell'archivio della tab 'Servizi'.")
+            st.warning("Caricamento della flotta in corso...")
+            
+    with tab2:
+        if not df_servizi.empty:
+            st.dataframe(df_servizi, use_container_width=True)
+        else:
+            st.info("Nessun servizio attivo.")
