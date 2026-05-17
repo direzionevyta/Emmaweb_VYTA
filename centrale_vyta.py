@@ -36,7 +36,7 @@ if is_mobile:
     
     stato_mezzo = st.radio("Stato attuale:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
 
-    # Raddoppiate tutte le parentesi graffe del codice JavaScript per non mandare in crash la f-string di Python
+    # JavaScript per il Telefono (parentesi graffe raddoppiate)
     js_gps_transmitter = f"""
     <script>
     function inviaPosizioneContinuo() {{
@@ -70,17 +70,19 @@ if is_mobile:
     components.html(js_gps_transmitter, height=150)
 
 # ---------------------------------------------------------
-# INTERFACCIA MAC (MOSTRA MAPPA LIVE)
+# INTERFACCIA MAC (MOSTRA MAPPA LIVE CON AUTO-REFRESH)
 # ---------------------------------------------------------
 else:
-    # Auto-refresh del monitor ogni 5 secondi
-    components.html("""
-        <script>
-        setInterval(function(){ window.parent.location.reload(); }, 5000);
-        </script>
-    """, height=0, width=0)
+    # JavaScript per il Mac: raddoppiate le parentesi del setInterval per evitare il SyntaxError
+    js_mac_refresh = """
+    <script>
+    setInterval(function(){ window.parent.location.reload(); }, 5000);
+    </script>
+    """
+    components.html(js_mac_refresh, height=0, width=0)
 
     st.title("💻 VYTA Holding - Monitoraggio Monitor Mac")
+    st.subheader("Centrale Operativa di Controllo Flotta")
     
     # Recuperiamo l'ultimo dato inviato dal telefono nel database cloud
     try:
@@ -96,7 +98,7 @@ else:
     except:
         lat_reale, lon_reale, stato_reale, ora_reale = 45.5212, 9.5924, "Errore connessione storage", "Nessuna"
 
-    # Box Informazioni
+    # Box Informazioni sul Monitor del Mac
     col1, col2, col3 = st.columns(3)
     col1.metric("Mezzo Rilevato", "Ambulanza 1 - Twinline")
     
@@ -106,9 +108,10 @@ else:
     
     st.markdown("---")
 
-    # Mappa Folium basata sulle coordinate inviate dal telefono
+    # Impostazione colore del Marker
     color_marker = "green" if stato_reale == "Libero" else "red" if stato_reale == "In Servizio" else "orange"
     
+    # Generazione Mappa Folium
     mappa_operativa = folium.Map(location=[lat_reale, lon_reale], zoom_start=15, tiles="CartoDB dark_matter")
     
     folium.Marker(
