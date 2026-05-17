@@ -8,7 +8,6 @@ import json
 # ==============================================================================
 # SEZIONE 1: CONFIGURAZIONE GENERALE E STILE
 # ==============================================================================
-# Qui puoi cambiare il titolo della scheda del browser e i colori dell'interfaccia
 st.set_page_config(page_title="VYTA Centrale Operativa Live", layout="wide", page_icon="🚑")
 
 st.markdown("""
@@ -21,14 +20,13 @@ st.markdown("""
 # ==============================================================================
 # SEZIONE 2: RETE E DATABASE (CLOUD STORAGE COORDIDATE)
 # ==============================================================================
-# Se vuoi cambiare stanza o database temporaneo per il GPS, modifica questo URL
 KV_URL = "https://kvdb.io/MN98H9A8yHaa89Hah91A/ambulanza_1"
 
 
 # ==============================================================================
-# SEZIONE 3: SISTEMA DI SVINGOLAMENTO (MAC vs TELEFONO)
+# SEZIONE 3: SISTEMA DI SVINGOLAMENTO (MAC vs TELEFONO) + PREVENTIVO MANUALE
 # ==============================================================================
-# Script invisibile che rileva se chi apre il link sta usando un cellulare o un Mac
+# Intercettazione automatica del browser
 ua_script = """
 <script>
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -36,7 +34,22 @@ window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}
 </script>
 """
 is_mobile_data = components.html(ua_script, height=0, width=0)
-is_mobile = is_mobile_data if is_mobile_data is not None else False
+is_mobile_auto = is_mobile_data if is_mobile_data is not None else False
+
+# Sblocco manuale nella barra laterale in caso di errore di rilevamento del PC
+st.sidebar.title("⚙️ VYTA Control")
+scelta_dispositivo = st.sidebar.radio(
+    "Forza Modalità Interfaccia:", 
+    ["Rilevamento Automatico", "💻 Forza Schermo Centrale (Mac)", "📱 Forza Schermo Bordo (Telefono)"]
+)
+
+# Applichiamo la logica di controllo finale
+if scelta_dispositivo == "💻 Forza Schermo Centrale (Mac)":
+    is_mobile = False
+elif scelta_dispositivo == "📱 Forza Schermo Bordo (Telefono)":
+    is_mobile = True
+else:
+    is_mobile = is_mobile_auto
 
 
 # ==============================================================================
@@ -46,10 +59,8 @@ if is_mobile:
     st.title("📱 Terminale Ambulanza")
     st.write("Mantieni questa pagina attiva sul telefono per trasmettere i dati di bordo.")
     
-    # Menu di selezione stato per i ragazzi a bordo
     stato_mezzo = st.radio("Stato attuale:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
 
-    # Script JavaScript che preleva il GPS del telefono e lo invia al cloud ogni 4 secondi
     js_gps_transmitter = f"""
     <script>
     function inviaPosizioneContinuo() {{
@@ -88,16 +99,24 @@ if is_mobile:
 # ==============================================================================
 else:
     # Auto-refresh del monitor Mac ogni 5 secondi per muovere i marker sulla mappa
+    # Rimosso il refresh se l'utente sta compilando il modulo nella Tab 2 per non perdere i dati scritti
+    if "attuale_tab" not in st.session_state:
+        st.session_state.attuale_tab = "🌐 MAPPA LIVE"
+
     js_mac_refresh = """
     <script>
-    setInterval(function(){ window.parent.location.reload(); }, 5000);
+    setInterval(function(){ 
+        const activeTab = window.parent.document.querySelector('[aria-selected="true"]');
+        if (activeTab && activeTab.textContent.includes("MAPPA LIVE")) {
+            window.parent.location.reload(); 
+        }
+    }, 5000);
     </script>
     """
     components.html(js_mac_refresh, height=0, width=0)
 
     st.title("💻 VYTA Holding - Centrale Operativa")
     
-    # Download in tempo reale dei dati trasmessi dal telefono
     try:
         res = requests.get(KV_URL)
         if res.status_code == 200 and res.text:
@@ -111,7 +130,6 @@ else:
     except:
         lat_reale, lon_reale, stato_reale, ora_reale = 45.5212, 9.5924, "Errore connessione storage", "Nessuna"
 
-    # Creazione delle schede (Tab) della centrale sul Mac
     tab1, tab2, tab3 = st.tabs(["🌐 MAPPA LIVE", "📝 NUOVA CHIAMATA / TRIAGE", "📊 STORICO SERVIZI"])
 
     # --- TAB 1: LA MAPPA INTERATTIVA ---
@@ -126,7 +144,6 @@ else:
         
         st.markdown("---")
 
-        # Configurazione visiva della mappa e del marker dell'ambulanza
         color_marker = "green" if stato_reale == "Libero" else "red" if stato_reale == "In Servizio" else "orange"
         mappa_operativa = folium.Map(location=[lat_reale, lon_reale], zoom_start=15, tiles="CartoDB dark_matter")
         
