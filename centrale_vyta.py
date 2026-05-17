@@ -14,7 +14,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Usiamo un database Key-Value temporaneo basato sul tuo raggruppamento (cambia il codice finale se vuoi renderlo unico)
+# URL del database temporaneo Key-Value
 KV_URL = "https://kvdb.io/MN98H9A8yHaa89Hah91A/ambulanza_1"
 
 # --- RILEVAMENTO TIPOLOGIA DISPOSITIVO ---
@@ -36,7 +36,7 @@ if is_mobile:
     
     stato_mezzo = st.radio("Stato attuale:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
 
-    # Questo script cattura il GPS nativo e lo spara direttamente nel database cloud via API Fetch
+    # Raddoppiate tutte le parentesi graffe del codice JavaScript per non mandare in crash la f-string di Python
     js_gps_transmitter = f"""
     <script>
     function inviaPosizioneContinuo() {{
@@ -58,9 +58,8 @@ if is_mobile:
                 function(error) {{ console.log("Errore GPS"); }},
                 {{ enableHighAccuracy: true }}
             );
-        }
+        }}
     }}
-    // Spedisce la posizione ogni 4 secondi automaticamente
     setInterval(inviaPosizioneContinuo, 4000);
     </script>
     <div style="text-align: center; padding: 25px; background-color: #1e293b; border-radius: 10px; border: 2px dashed #2563eb;">
