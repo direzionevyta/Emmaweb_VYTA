@@ -1,128 +1,123 @@
 import streamlit as st
-import pandas as pd
 import folium
 from streamlit_folium import st_folium
-import requests
-from io import StringIO
-import json
+import streamlit.components.v1 as components
 
-# --- CONFIGURAZIONE DELLA PAGINA ---
-st.set_page_config(page_title="VYTA Ecosystem", layout="wide", page_icon="🚑")
+# --- CONFIGURAZIONE PAGINA CENTRALE ---
+st.set_page_config(page_title="VYTA Centrale Operativa Mac", layout="wide", page_icon="🚑")
 
-# ID del tuo foglio Google ricavato dall'URL
-SPREADSHEET_ID = "1fB90cmSyBNn5Y_YW4nMD09z_RRLhkjN1UtvZHT9GpRM"
+# Stile CSS Scuro Professionale
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: white; }
+    .css-17l273f { background-color: #1e293b; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Funzione di lettura dal Cloud
-def carica_foglio_via_csv(nome_tab):
-    try:
-        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={nome_tab}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return pd.read_csv(StringIO(response.text))
-        else:
-            return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+# --- MEMORIA DI SESSIONE PER TRASMISSIONE DATI ---
+if "lat" not in st.session_state:
+    st.session_state.lat = 45.5212
+if "lon" not in st.session_state:
+    st.session_state.lon = 9.5924
+if "nome_mezzo" not in st.session_state:
+    st.session_state.nome_mezzo = "Ambulanza 1 - Twinline"
+if "stato_mezzo" not in st.session_state:
+    st.session_state.stato_mezzo = "Libero"
 
-# Selettore di modalità nell'interfaccia
-st.sidebar.title("🎮 VYTA Control Mode")
-modalita = st.sidebar.radio("Seleziona il dispositivo attuale:", ["💻 SCHERMO CENTRALE (Mac)", "📱 DISPOSITIVO A BORDO (Telefono)"])
+# --- RILEVAMENTO TIPOLOGIA DISPOSITIVO ---
+# Usiamo un piccolo script per capire se l'utente è da Mobile o da Desktop
+ua_script = """
+<script>
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}, '*');
+</script>
+"""
+is_mobile_data = components.html(ua_script, height=0, width=0)
+is_mobile = is_mobile_data if is_mobile_data is not None else False
 
 # ---------------------------------------------------------
-# MODALITÀ TELEFONO: IL TUO CELLULARE È L'AMBULANZA
+# SPREAD INTERFACCIA: SE SEI SUL TELEFONO (AMBULANZA)
 # ---------------------------------------------------------
-if modalita == "📱 DISPOSITIVO A BORDO (Telefono)":
-    st.header("Interfaccia Mobile - Ambulanza Real-Time")
-    st.write("Usa questa schermata sul telefono per inviare la tua posizione alla centrale.")
+if is_mobile:
+    st.title("📱 VYTA - Terminale di Bordo")
+    st.write("Mantieni questa schermata aperta sul telefono per trasmettere la posizione dell'ambulanza.")
     
-    mezzo_selezionato = st.selectbox("Seleziona quale mezzo sei:", [
-        "Ambulanza 1 - Twinline", 
-        "Ambulanza 2 - Delfis CR", 
-        "Ambulanza 3 - Tigis N20"
-    ])
-    
-    stato_mezzo = st.radio("Cambia il tuo stato operativo:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
+    st.session_state.nome_mezzo = st.selectbox("Seleziona il tuo Mezzo:", ["Ambulanza 1 - Twinline", "Ambulanza 2 - Delfis CR", "Ambulanza 3 - Tigis N20"])
+    st.session_state.stato_mezzo = st.radio("Stato Operativo attuale:", ["Libero", "In Servizio", "Fuori Servizio"], horizontal=True)
 
-    # JavaScript per estrarre la posizione esatta dal chip GPS del telefono
-    js_gps = """
+    # JavaScript per agganciare il GPS nativo del telefono
+    js_gps_transmitter = """
     <script>
-    function inviaPosizione() {
-        navigator.geolocation.getCurrentPosition(function(position) {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            
-            // Creiamo un messaggio visibile a Streamlit
-            const dati = {latitude: lat, longitude: lon, t: Date.now()};
-            window.parent.postMessage({type: 'streamlit:setComponentValue', value: dati}, '*');
-        }, function(error) {
-            alert("Per favore, attiva il GPS del telefono e dai i permessi al browser.");
-        });
+    function inviaPosizioneContinuo() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const dati = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                    window.parent.postMessage({type: 'streamlit:setComponentValue', value: dati}, '*');
+                },
+                function(error) { alert("Attiva il GPS e autorizza il browser!"); },
+                { enableHighAccuracy: true }
+            );
+        }
     }
+    // Avvia la trasmissione
+    setInterval(inviaPosizioneContinuo, 3000);
     </script>
-    <button onclick="inviaPosizione()" style="background-color: #2563eb; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; width: 100%; cursor: pointer;">
-        📍 TRASMETTI COORDIDATE GPS LIVE
-    </button>
+    <div style="text-align: center; padding: 20px; background-color: #1e293b; border-radius: 10px; border: 2px dashed #3b82f6;">
+        <h3 style="color: #3b82f6; margin-0;">📡 TRASMISSIONE GPS ATTIVA</h3>
+        <p style="color: #94a3b8; font-size: 14px;">Il telefono sta inviando le coordinate alla centrale...</p>
+    </div>
     """
     
-    st.markdown("---")
-    st.subheader("Passo 1: Rileva Posizione")
-    # Pulsante speciale che attiva l'antenna GPS dello smartphone
-    valore_gps = st.components.v1.html(js_gps, height=80)
+    dati_gps = components.html(js_gps_transmitter, height=120)
     
-    st.subheader("Passo 2: Invia i dati")
-    st.write("Dopo aver premuto il tasto blu sopra, conferma l'invio qui sotto per sincronizzare la mappa.")
-    
-    if st.button("AGGIORNA SULLA MAPPA DELLA CENTRALE"):
-        st.success(f"Posizione inviata! Il mezzo {mezzo_selezionato} è ora impostato come '{stato_mezzo}'.")
-        st.info("Nota: Per salvare la posizione sul foglio Google anche dal telefono senza chiavi API, apri direttamente l'app Google Fogli sul telefono e modifica i valori di Latitudine e Longitudine.")
+    if dati_gps:
+        st.session_state.lat = dati_gps.get("latitude", st.session_state.lat)
+        st.session_state.lon = dati_gps.get("longitude", st.session_state.lon)
+        st.toast("📍 Coordinate GPS inviate alla centrale Mac!", icon="✅")
 
 # ---------------------------------------------------------
-# MODALITÀ CENTRALE: IL MONITOR SUL MAC
+# SPREAD INTERFACCIA: SE SEI SUL MAC (CENTRALE OPERATIVA)
 # ---------------------------------------------------------
 else:
-    st.header("Centrale Operativa - Monitoraggio Flotta")
+    # Auto-refresh della centrale ogni 5 secondi per catturare gli spostamenti del telefono automaticamente
+    components.html("""
+        <script>
+        setInterval(function(){ window.parent.location.reload(); }, 5000);
+        </script>
+    """, height=0, width=0)
+
+    st.title("💻 VYTA Holding - Centrale Operativa H24")
+    st.subheader("Quadro Geografico di Monitoraggio Flotta")
     
-    # Carichiamo i dati inseriti nel foglio
-    df_mezzi = carica_foglio_via_csv("Mezzi")
-    df_servizi = carica_foglio_via_csv("Servizi")
+    # Visualizzazione dello Stato Attuale del Mezzo Mobile
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Mezzo Monitorato", st.session_state.nome_mezzo)
     
-    tab1, tab2 = st.tabs(["🌐 MAPPA LIVE", "📊 STORICO"])
+    color_status = "🟢" if st.session_state.stato_mezzo == "Libero" else "🔴" if st.session_state.stato_mezzo == "In Servizio" else "🟡"
+    col2.metric("Stato Operativo", f"{color_status} {st.session_state.stato_mezzo}")
+    col3.metric("Aggiornamento Automatico", "Attivo (5s)")
     
-    with tab1:
-        if not df_mezzi.empty and 'Latitudine' in df_mezzi.columns:
-            df_mappa = df_mezzi.dropna(subset=['Latitudine', 'Longitudine'])
-            
-            if not df_mappa.empty:
-                centro_lat = df_mappa['Latitudine'].median()
-                centro_lon = df_mappa['Longitudine'].median()
-                
-                m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
-                
-                for index, row in df_mappa.iterrows():
-                    try:
-                        lat = float(row['Latitudine'])
-                        lon = float(row['Longitudine'])
-                        
-                        if lat != 0 and lon != 0:
-                            color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
-                            
-                            folium.Marker(
-                                location=[lat, lon],
-                                popup=f"<b>{row['Mezzo']}</b><br>Stato: {row['Stato']}<br>Staff: {row['Autista']}",
-                                tooltip=str(row['Mezzo']),
-                                icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
-                            ).add_to(m)
-                    except ValueError:
-                        continue
-                
-                st_folium(m, width=1200, height=500)
-            else:
-                st.warning("Nessuna coordinata valida trovata nel foglio 'Mezzi'.")
-        else:
-            st.warning("Caricamento della flotta in corso...")
-            
-    with tab2:
-        if not df_servizi.empty:
-            st.dataframe(df_servizi, use_container_width=True)
-        else:
-            st.info("Nessun servizio attivo.")
+    st.markdown("---")
+
+    # Configurazione Colore Segnaposto sulla mappa
+    color_marker = "green" if st.session_state.stato_mezzo == "Libero" else "red" if st.session_state.stato_mezzo == "In Servizio" else "orange"
+
+    # Generazione Mappa Scura fissa sul Mac
+    mappa_mac = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=14, tiles="CartoDB dark_matter")
+    
+    # Disegniamo il Marker dell'ambulanza (telefono) sulla mappa del Mac
+    folium.Marker(
+        location=[st.session_state.lat, st.session_state.lon],
+        popup=f"<b>{st.session_state.nome_mezzo}</b><br>Stato: {st.session_state.stato_mezzo}",
+        tooltip=st.session_state.nome_mezzo,
+        icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
+    ).add_to(mappa_mac)
+    
+    # Mostriamo la mappa a pieno schermo sul Mac
+    st_folium(mappa_mac, width=1300, height=600)
+    
+    st.caption(f"Ultima coordinata ricevuta dal telefono a bordo: Lat {st.session_state.lat} | Lon {st.session_state.lon}")
