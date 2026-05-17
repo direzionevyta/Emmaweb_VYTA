@@ -1,0 +1,119 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import pandas as pd
+import os
+from datetime import datetime
+
+# Nome del database Excel
+DB_FILE = "centrale_vyta.xlsx"
+
+# Funzione per salvare il servizio nel database
+def salva_servizio():
+    # Raccolta dati dai campi
+    dati = {
+        "ID_Servizio": [datetime.now().strftime("%Y%m%d-%H%M%S")],
+        "Data_Ora_Chiamata": [datetime.now().strftime("%d/%m/%Y %H:%M")],
+        "Cognome": [entry_cognome.get()],
+        "Nome": [entry_nome.get()],
+        "Data_Nascita": [entry_nascita.get()],
+        "Codice_Fiscale": [entry_cf.get().upper()],
+        "Tel_Chiamante": [entry_tel.get()],
+        "Email_Fattura": [entry_email.get()],
+        "Tipo_Richiesta": [combo_tipo.get()],
+        "Partenza_Da": [entry_da.get()],
+        "Destinazione_A": [entry_a.get()],
+        "Deambulazione": [combo_deamb.get()],
+        "Note_Logistiche": [text_note.get("1.0", tk.END).strip()],
+        "Assegnazione_Mezzo": [combo_mezzo.get()],
+        "Stato_Servizio": ["IN ATTESA"]
+    }
+    
+    # Controllo campi minimi obbligatori
+    if not dati["Cognome"][0] or not dati["Partenza_Da"][0] or not dati["Destinazione_A"][0]:
+        messagebox.showwarning("Attenzione", "Compilare almeno Cognome, Partenza e Destinazione!")
+        return
+
+    df_nuovo = pd.DataFrame(dati)
+
+    # Se il file esiste già, accoda il servizio, altrimenti lo crea
+    if os.path.exists(DB_FILE):
+        df_esistente = pd.read_excel(DB_FILE)
+        df_finale = pd.concat([df_esistente, df_nuovo], ignore_index=True)
+    else:
+        df_finale = df_nuovo
+
+    df_finale.to_excel(DB_FILE, index=False)
+    messagebox.showinfo("Successo", f"Servizio registrato e salvato in {DB_FILE}!\nAssegnato a: {dati['Assegnazione_Mezzo'][0]}")
+    pulisci_campi()
+
+def pulisci_campi():
+    for entry in [entry_cognome, entry_nome, entry_nascita, entry_cf, entry_tel, entry_email, entry_da, entry_a]:
+        entry.delete(0, tk.END)
+    text_note.delete("1.0", tk.END)
+    combo_tipo.set("Trasporto Sanitario Semplice")
+    combo_deamb.set("Barellato")
+    combo_mezzo.set("Ambulanza 1 - Twinline")
+
+# --- INTERFACCIA GRAFICA (Centrale VYTA) ---
+root = tk.Tk()
+root.title("VYTA Holding - Centrale Operativa H24")
+root.geometry("650x700")
+root.configure(bg="#f4f6f9")
+
+# Titolo principale
+lbl_titolo = tk.Label(root, text="INTERVISTA DI TRIAGE LOGISTICO VYTA", font=("Helvetica", 16, "bold"), fg="#1e3a8a", bg="#f4f6f9")
+lbl_titolo.pack(pady=15)
+
+frame_corpo = tk.Frame(root, bg="#f4f6f9")
+frame_corpo.pack(padx=20, pady=5, fill="both", expand=True)
+
+# Funzione helper per creare le righe di input
+def crea_campo(label_text, riga, largo=30):
+    lbl = tk.Label(frame_corpo, text=label_text, font=("Helvetica", 10, "bold"), bg="#f4f6f9", fg="#334155")
+    lbl.grid(row=riga, column=0, sticky="w", pady=5, padx=5)
+    ent = tk.Entry(frame_corpo, font=("Helvetica", 10), width=largo)
+    ent.grid(row=riga, column=1, sticky="w", pady=5, padx=5)
+    return ent
+
+# Campi di Input basati sulla tua intervista
+entry_cognome = crea_campo("Cognome Paziente *:", 0)
+entry_nome = crea_campo("Nome Paziente:", 1)
+entry_nascita = crea_campo("Data di Nascita (GG/MM/AAAA):", 2)
+entry_cf = crea_campo("Codice Fiscale:", 3)
+entry_tel = crea_campo("Telefono (Chiamante/Pz):", 4)
+entry_email = crea_campo("Email per Fattura:", 5)
+
+# Tipo di richiesta (Menu a tendina)
+tk.Label(frame_corpo, text="Tipo di Richiesta *:", font=("Helvetica", 10, "bold"), bg="#f4f6f9", fg="#334155").grid(row=6, column=0, sticky="w", pady=5, padx=5)
+combo_tipo = ttk.Combobox(frame_corpo, font=("Helvetica", 10), width=28, state="readonly")
+combo_tipo['values'] = ("Trasporto Sanitario Semplice", "CMR (Centro Mobile Rianimazione)", "Trasporto a lunga percorrenza", "Visita specialistica")
+combo_tipo.set("Trasporto Sanitario Semplice")
+combo_tipo.grid(row=6, column=1, sticky="w", pady=5, padx=5)
+
+entry_da = crea_campo("Partenza (Da) *:", 7, largo=45)
+entry_a = crea_campo("Destinazione (A) *:", 8, largo=45)
+
+# Deambulazione (Menu a tendina)
+tk.Label(frame_corpo, text="Stato del Paziente *:", font=("Helvetica", 10, "bold"), bg="#f4f6f9", fg="#334155").grid(row=9, column=0, sticky="w", pady=5, padx=5)
+combo_deamb = ttk.Combobox(frame_corpo, font=("Helvetica", 10), width=28, state="readonly")
+combo_deamb['values'] = ("Barellato", "Seggiolato", "Cammina (Deambulante)")
+combo_deamb.set("Barellato")
+combo_deamb.grid(row=9, column=1, sticky="w", pady=5, padx=5)
+
+# Note logistiche (Campo di testo grande)
+tk.Label(frame_corpo, text="Note Logistiche\n(Ascensore, Gradini, Reparto...):", font=("Helvetica", 10, "bold"), bg="#f4f6f9", fg="#334155").grid(row=10, column=0, sticky="w", pady=5, padx=5)
+text_note = tk.Text(frame_corpo, font=("Helvetica", 10), width=35, height=4)
+text_note.grid(row=10, column=1, sticky="w", pady=5, padx=5)
+
+# Assegnazione Ambulanza (Menu a tendina)
+tk.Label(frame_corpo, text="Assegna a Mezzo VYTA *:", font=("Helvetica", 10, "bold"), bg="#f4f6f9", fg="#1e3a8a").grid(row=11, column=0, sticky="w", pady=15, padx=5)
+combo_mezzo = ttk.Combobox(frame_corpo, font=("Helvetica", 10, "bold"), width=28, state="readonly")
+combo_mezzo['values'] = ("Ambulanza 1 - Twinline", "Ambulanza 2 - Delfis CR", "Ambulanza 3 - Tigis N20")
+combo_mezzo.set("Ambulanza 1 - Twinline")
+combo_mezzo.grid(row=11, column=1, sticky="w", pady=15, padx=5)
+
+# Bottone di invio / Salvataggio
+btn_salva = tk.Button(root, text="INVIA SERVIZIO ALL'AMBULANZA", font=("Helvetica", 12, "bold"), bg="#10b981", fg="white", bd=0, padding=10, command=salva_servizio)
+btn_salva.pack(pady=20)
+
+root.mainloop()
