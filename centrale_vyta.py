@@ -7,7 +7,16 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 
+# --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="VYTA Centrale Operativa", layout="wide", page_icon="🚑")
+
+# Stile CSS Tech
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: white; }
+    .metric-card { background-color: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- CONNESSIONE REALE A GOOGLE SHEETS ---
 def carica_dati_realtime():
@@ -17,29 +26,29 @@ def carica_dati_realtime():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Apriamo il file principale
+        # Apriamo il file principale su Google Drive
         cartella = client.open("Centrale_VYTA_Cloud")
         
-        # Leggiamo i due fogli reali
+        # Carichiamo i fogli con i nuovi nomi corretti
         foglio_servizi = cartella.worksheet("Servizi")
-        foglio_flotta = cartella.worksheet("Flotta")
+        foglio_mezzi = cartella.worksheet("Mezzi")
         
         df_servizi = pd.DataFrame(foglio_servizi.get_all_records())
-        df_flotta = pd.DataFrame(foglio_flotta.get_all_records())
+        df_mezzi = pd.DataFrame(foglio_mezzi.get_all_records())
         
-        return df_servizi, df_flotta, foglio_servizi
+        return df_servizi, df_mezzi, foglio_servizi
     except Exception as e:
-        st.error(f"Errore di connessione al database reale: {e}")
+        st.error(f"Errore di lettura: controlla che i fogli in basso si chiamino 'Servizi' e 'Mezzi'. Dettaglio: {e}")
         return pd.DataFrame(), pd.DataFrame(), None
 
-df_servizi, df_flotta, conn_servizi = carica_dati_realtime()
+df_servizi, df_mezzi, conn_servizi = carica_dati_realtime()
 
 # --- SIDEBAR: MONITORAGGIO FLOTTA DAL VIVO ---
 st.sidebar.title("🚑 Flotta VYTA (Live)")
 st.sidebar.markdown("---")
 
-if not df_flotta.empty:
-    for index, row in df_flotta.iterrows():
+if not df_mezzi.empty:
+    for index, row in df_mezzi.iterrows():
         status_icon = "🟢" if row['Stato'] == "Libero" else "🔴" if row['Stato'] == "In Servizio" else "🟡"
         st.sidebar.markdown(f"**{status_icon} {row['Mezzo']}**")
         st.sidebar.caption(f"Stato: {row['Stato']}")
@@ -53,15 +62,13 @@ tab1, tab2, tab3 = st.tabs(["🌐 MAPPA INTERATTIVA LIVE", "📝 PRESA DELLA CHI
 with tab1:
     st.header("Quadro Operativo Real-Time")
     
-    if not df_flotta.empty:
-        # Centro la mappa sulla media delle posizioni reali dei mezzi
-        centro_lat = df_flotta['Latitudine'].median()
-        centro_lon = df_flotta['Longitudine'].median()
+    if not df_mezzi.empty:
+        centro_lat = df_mezzi['Latitudine'].median()
+        centro_lon = df_mezzi['Longitudine'].median()
         
         m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
         
-        # Piazziamo i marker reali sulla mappa usando i dati del foglio
-        for index, row in df_flotta.iterrows():
+        for index, row in df_mezzi.iterrows():
             if row['Latitudine'] != 0 and row['Longitudine'] != 0:
                 color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
                 
@@ -81,11 +88,10 @@ with tab1:
         
         st_folium(m, width=1200, height=500)
     else:
-        st.warning("Nessun dato flotta disponibile. Configura il foglio 'Flotta' su Google Drive.")
+        st.warning("Nessun dato flotta disponibile. Configura il foglio 'Mezzi' su Google Drive.")
 
 with tab2:
     st.header("Triage Logistico / Presa Chiamata")
-    # Il modulo rimane identico, scrive nel foglio "Servizi"
     with st.form("modulo_chiamata", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -101,8 +107,7 @@ with tab2:
             
         note = st.text_area("Note Logistiche (Scale, Ascensore, Reparto...)")
         
-        # Carica dinamicamente i mezzi reali dal foglio per il menu a tendina
-        lista_mezzi = df_flotta['Mezzo'].tolist() if not df_flotta.empty else ["Nessun mezzo configurato"]
+        lista_mezzi = df_mezzi['Mezzo'].tolist() if not df_mezzi.empty else ["Nessun mezzo configurato"]
         mezzo_scelto = st.selectbox("Assegna a Mezzo", lista_mezzi)
         
         if st.form_submit_button("TRASMETTI SERVIZIO A BORDO"):
