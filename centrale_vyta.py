@@ -25,7 +25,7 @@ def carica_dati_realtime():
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
         # Carichiamo le credenziali dai Secrets di Streamlit
-        creds_dict = json.loads(st.secrets["google_credentials"])
+        creds_dict = json.loads(st.secrets["https://docs.google.com/spreadsheets/d/1fB90cmSyBNn5Y_YW4nMD09z_RRLhkjN1UtvZHT9GpRM/edit?usp=sharing"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
