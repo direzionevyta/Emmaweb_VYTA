@@ -2,15 +2,13 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from datetime import datetime
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import json
+import requests
+from io import StringIO
 
 # --- CONFIGURAZIONE DELLA PAGINA WEB ---
 st.set_page_config(page_title="VYTA Centrale Operativa Live", layout="wide", page_icon="🚑")
 
-# Stile CSS per un look moderno e scuro ("Tech")
+# Stile CSS Tech
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; }
@@ -18,42 +16,36 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONNESSIONE REALE A GOOGLE SHEETS (File: Mezzi) ---
-def carica_dati_realtime():
-    try:
-        # Definiamo i permessi di accesso a Google Drive
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        
-        # Carichiamo le credenziali dai Secrets di Streamlit
-        creds_dict = json.loads(st.secrets["https://docs.google.com/spreadsheets/d/1fB90cmSyBNn5Y_YW4nMD09z_RRLhkjN1UtvZHT9GpRM/edit?usp=sharing"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        
-        # Apriamo il file principale usando il nome esatto ricavato dal tuo URL
-        cartella = client.open("Mezzi")
-        
-        # Carichiamo i dati dalle due tab interne (fogli in basso)
-        foglio_servizi = cartella.worksheet("Servizi")
-        foglio_mezzi = cartella.worksheet("Mezzi")
-        
-        df_servizi = pd.DataFrame(foglio_servizi.get_all_records())
-        df_mezzi = pd.DataFrame(foglio_mezzi.get_all_records())
-        
-        return df_servizi, df_mezzi, foglio_servizi
-    except Exception as e:
-        st.error(f"⚠️ Errore di connessione: verifica che nei 'Secrets' di Streamlit ci siano le credenziali e che le tab in basso su Google Sheets si chiamino esattamente 'Servizi' e 'Mezzi'. Dettaglio: {e}")
-        return pd.DataFrame(), pd.DataFrame(), None
+# --- CONFIGURAZIONE LINK GOOGLE SHEETS ---
+# ID del tuo file ricavato dal tuo URL
+SPREADSHEET_ID = "1fB90cmSyBNn5Y_YW4nMD09z_RRLhkjN1UtvZHT9GpRM"
 
-# Eseguiamo il caricamento live dei dati
-df_servizi, df_mezzi, conn_servizi = carica_dati_realtime()
+# Funzione per leggere i fogli tramite URL CSV (Metodo Alternativo senza chiavi API)
+def carica_foglio_via_csv(nome_tab):
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={nome_tab}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return pd.read_csv(StringIO(response.text))
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Errore di caricamento tab {nome_tab}: {e}")
+        return pd.DataFrame()
+
+# Caricamento dati in tempo reale
+df_servizi = carica_foglio_via_csv("Servizi")
+df_mezzi = carica_foglio_via_csv("Mezzi")
 
 # --- BARRA LATERALE (SIDEBAR): MONITORAGGIO MEZZI IN DIRETTA ---
 st.sidebar.title("🚑 Flotta VYTA (Live)")
 st.sidebar.markdown("---")
 
-if not df_mezzi.empty:
+if not df_mezzi.empty and 'Mezzo' in df_mezzi.columns:
     for index, row in df_mezzi.iterrows():
-        # Cambiamo il colore dell'icona in base allo stato reale del mezzo
+        # Controllo di sicurezza per evitare righe vuote nel foglio
+        if pd.isna(row['Mezzo']) or row['Mezzo'] == "":
+            continue
         status_icon = "🟢" if row['Stato'] == "Libero" else "🔴" if row['Stato'] == "In Servizio" else "🟡"
         st.sidebar.markdown(f"**{status_icon} {row['Mezzo']}**")
         st.sidebar.caption(f"Stato: {row['Stato']}")
@@ -61,95 +53,66 @@ if not df_mezzi.empty:
         st.sidebar.caption(f"Ultimo segnale: {row['Ultimo_Aggiornamento']}")
         st.sidebar.markdown("---")
 else:
-    st.sidebar.warning("Nessun mezzo trovato nel foglio 'Mezzi'.")
+    st.sidebar.warning("Nessun mezzo trovato o errore di intestazione nel foglio 'Mezzi'.")
 
 # --- NAVIGAZIONE PRINCIPALE A TAB ---
-tab1, tab2, tab3 = st.tabs(["🌐 MAPPA INTERATTIVA LIVE", "📝 PRESA DELLA CHIAMATA", "📊 STORICO TRASPORTI"])
+tab1, tab2, tab3 = st.tabs(["🌐 MAPPA INTERATTIVA LIVE", "📝 FUNZIONI DI SCRITTURA", "📊 STORICO TRASPORTI"])
 
 # --- TAB 1: LA MAPPA CON I MEZZI REALI ---
 with tab1:
     st.header("Quadro Operativo Real-Time")
     
-    # KPI di sintesi in alto
     c1, c2, c3 = st.columns(3)
-    c1.metric("Mezzi Configurate", len(df_mezzi) if not df_mezzi.empty else 0)
-    c2.metric("Servizi Totali", len(df_servizi) if not df_servizi.empty else 0)
-    c3.metric("Stato Rete Cloud", "CONNESSO", delta="Google Drive OK")
+    c2.metric("Mezzi Configurate", len(df_mezzi) if not df_mezzi.empty else 0)
+    c3.metric("Servizi Totali", len(df_servizi) if not df_servizi.empty else 0)
     
     st.markdown("---")
 
-    if not df_mezzi.empty:
-        # Calcoliamo il centro della mappa in base alle coordinate dei mezzi inseriti
-        centro_lat = df_mezzi['Latitudine'].median()
-        centro_lon = df_mezzi['Longitudine'].median()
+    if not df_mezzi.empty and 'Latitudine' in df_mezzi.columns:
+        # Pulizia dati da eventuali righe nulle
+        df_mappa = df_mezzi.dropna(subset=['Latitudine', 'Longitudine'])
         
-        # Creiamo la mappa scura professionale
-        m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
-        
-        # Posizioniamo i marker per ogni mezzo reale
-        for index, row in df_mezzi.iterrows():
-            if row['Latitudine'] != 0 and row['Longitudine'] != 0:
-                color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
-                
-                popup_text = f"""
-                <b>{row['Mezzo']}</b><br>
-                Stato: {row['Stato']}<br>
-                Equipaggio: {row['Autista']}, {row['Soccorritore']}, {row['Sanitario']}<br>
-                Aggiornato: {row['Ultimo_Aggiornamento']}
-                """
-                
-                folium.Marker(
-                    location=[row['Latitudine'], row['Longitudine']],
-                    popup=folium.Popup(popup_text, max_width=300),
-                    tooltip=row['Mezzo'],
-                    icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
-                ).add_to(m)
-        
-        # Mostriamo la mappa a schermo intero nella dashboard
-        st_folium(m, width=1200, height=500)
-    else:
-        st.warning("In attesa dei dati geografici. Assicurati che il foglio 'Mezzi' contenga le colonne Latitudine e Longitudine compilate.")
-
-# --- TAB 2: IL MODULO DI TRIAGE PER PRENDERE LE CHIAMATE ---
-with tab2:
-    st.header("Triage Logistico / Presa della Chiamata")
-    st.write("Compila l'intervista guidata mentre sei al telefono con l'utente:")
-    
-    with st.form("modulo_chiamata", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            cognome = st.text_input("Cognome Paziente *")
-            nome = st.text_input("Nome Paziente")
-            cf = st.text_input("Codice Fiscale").upper()
-            tel = st.text_input("Telefono Chiamante")
-        with c2:
-            tipo = st.selectbox("Tipo Richiesta *", ["Trasporto Semplice", "CMR", "Lunga Percorrenza", "Visita"])
-            deamb = st.radio("Deambulazione *", ["Barellato", "Seggiolato", "Cammina"], horizontal=True)
-            da = st.text_input("Da (Partenza) *")
-            a = st.text_input("A (Destinazione) *")
+        if not df_mappa.empty:
+            centro_lat = df_mappa['Latitudine'].median()
+            centro_lon = df_mappa['Longitudine'].median()
             
-        note = st.text_area("Note Logistiche (Scale, Ascensore, Gradini, Reparto ospedale...)")
-        
-        # Carichiamo dinamicamente la lista dei mezzi reali dal foglio per assegnare il servizio
-        lista_mezzi = df_mezzi['Mezzo'].tolist() if not df_mezzi.empty else ["Nessun mezzo configurato"]
-        mezzo_scelto = st.selectbox("Assegna a Mezzo VYTA *", lista_mezzi)
-        
-        # Tasto di invio
-        if st.form_submit_button("TRASMETTI SERVIZIO A BORDO"):
-            if conn_servizi is not None and cognome and da and a:
-                # Creiamo la riga da appendere nel foglio "Servizi"
-                nuovo_record = [
-                    datetime.now().strftime("%Y%m%d-%H%M%S"),  # ID Servizio unico
-                    datetime.now().strftime("%d/%m/%Y %H:%M"), # Data e ora chiamata
-                    cognome, nome, cf, tel, tipo, deamb, da, a, note, mezzo_scelto, "IN ATTESA"
-                ]
-                # Invio al cloud
-                conn_servizi.append_row(nuovo_record)
-                st.success(f"✅ Servizio trasmesso in tempo reale all'equipaggio di: {mezzo_scelto}!")
-                st.balloons()
-                st.rerun()
-            else:
-                st.error("⚠️ Impossibile inviare. Compila tutti i campi obbligatori (*) e verifica la connessione.")
+            m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10, tiles="CartoDB dark_matter")
+            
+            for index, row in df_mappa.iterrows():
+                try:
+                    lat = float(row['Latitudine'])
+                    lon = float(row['Longitudine'])
+                    
+                    if lat != 0 and lon != 0:
+                        color_marker = "green" if row['Stato'] == "Libero" else "red" if row['Stato'] == "In Servizio" else "orange"
+                        
+                        popup_text = f"""
+                        <b>{row['Mezzo']}</b><br>
+                        Stato: {row['Stato']}<br>
+                        Equipaggio: {row['Autista']}, {row['Soccorritore']}, {row['Sanitario']}<br>
+                        Aggiornato: {row['Ultimo_Aggiornamento']}
+                        """
+                        
+                        folium.Marker(
+                            location=[lat, lon],
+                            popup=folium.Popup(popup_text, max_width=300),
+                            tooltip=row['Mezzo'],
+                            icon=folium.Icon(color=color_marker, icon="ambulance", prefix="fa")
+                        ).add_to(m)
+                except ValueError:
+                    continue
+            
+            st_folium(m, width=1200, height=500)
+        else:
+            st.warning("Inserisci delle coordinate GPS valide nel foglio 'Mezzi' per attivare la mappa.")
+    else:
+        st.warning("In attesa dei dati geografici della flotta.")
+
+# --- TAB 2: INFORMAZIONI DI COLLEGAMENTO ---
+with tab2:
+    st.header("Gestione Flotta e Inserimenti")
+    st.info("ℹ️ Con questo metodo di lettura semplificato via Web, la Centrale legge i dati dal cloud in tempo reale.")
+    st.write("Per inserire nuovi servizi o fare in modo che i telefoni aggiornino le posizioni, usa l'applicazione mobile o compila direttamente le righe sul tuo file Google Sheets dal browser.")
 
 # --- TAB 3: LO STORICO COMPLETO DEI TRASPORTI ---
 with tab3:
